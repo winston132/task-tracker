@@ -7,7 +7,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Persist tasks.json on your host machine so data survives container restarts
+      # Mount the tasks.json FILE directly (must exist on host before running)
       - ./tasks.json:/app/tasks.json
     restart: unless-stopped
     environment:

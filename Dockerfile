@@ -12,9 +12,8 @@ COPY task-cli.js  ./
 COPY server.js    ./
 COPY public/      ./public/
 
-# Create data directory and empty tasks file
-RUN mkdir -p /app/data && \
-    echo '{"nextId":1,"tasks":[]}' > /app/data/tasks.json
+# Create a default tasks.json so the app works even without a volume mount
+RUN echo '{"nextId":1,"tasks":[]}' > /app/tasks.json
 
 # Expose the web server port
 EXPOSE 3000

@@ -1,0 +1,16 @@
+{
+  "nextId": 2,
+  "tasks": [
+    {
+      "id": 1,
+      "description": "Test task from fix",
+      "status": "todo",
+      "priority": "high",
+      "project": "",
+      "progress": 0,
+      "assignee": "",
+      "createdAt": "2026-10-22T17:18:33.323Z",
+      "updatedAt": "2026-10-22T17:18:33.323Z"
+    }
+  ]
+}
