@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrackFlow — Task Tracker</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ════════════════════════ SIDEBAR ════════════════════════ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <span class="logo-icon">✓</span>
+    <span class="logo-text">TrackFlow</span>
+  </div>
+
+  <nav class="sidebar-nav">
+    <a href="#" class="nav-item active" data-view="dashboard">
+      <span class="nav-icon">⊞</span> Dashboard
+    </a>
+    <a href="#" class="nav-item" data-view="tasks">
+      <span class="nav-icon">☑</span> My Tasks
+    </a>
+    <a href="#" class="nav-item" data-view="kanban">
+      <span class="nav-icon">⊟</span> Kanban Board
+    </a>
+    <a href="#" class="nav-item" data-view="analytics">
+      <span class="nav-icon">∿</span> Analytics
+    </a>
+    <a href="#" class="nav-item" data-view="projects">
+      <span class="nav-icon">⬚</span> Projects
+    </a>
+    <a href="#" class="nav-item" data-view="settings">
+      <span class="nav-icon">⚙</span> Settings
+    </a>
+  </nav>
+
+  <div class="sidebar-team">
+    <div class="team-label">Team</div>
+    <div class="team-avatars">
+      <div class="avatar av1" title="Alex">A</div>
+      <div class="avatar av2" title="Sam">S</div>
+      <div class="avatar av3" title="Kim">K</div>
+      <div class="avatar av4" title="Jordan">J</div>
+    </div>
+  </div>
+
+  <div class="sidebar-user">
+    <div class="avatar av1 user-avatar">A</div>
+    <div class="user-info">
+      <div class="user-name">Alex Carter</div>
+      <div class="user-email">alex@trackflow.com</div>
+    </div>
+  </div>
+</aside>
+
+<!-- ════════════════════════ MAIN ════════════════════════ -->
+<main class="main-content">
+
+  <!-- Top Bar -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1 class="page-title" id="pageTitle">Dashboard</h1>
+    </div>
+    <div class="topbar-center">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="globalSearch" placeholder="Search tasks, projects…" />
+      </div>
+    </div>
+    <div class="topbar-right">
+      <button class="btn-ghost" id="notifBtn">🔔 Notifications</button>
+      <button class="btn-ghost">❓ Help</button>
+      <button class="btn-primary" id="createTaskBtn">+ Create Task</button>
+    </div>
+  </header>
+
+  <!-- ── DASHBOARD VIEW ── -->
+  <section class="view active" id="view-dashboard">
+
+    <!-- Stats Row -->
+    <div class="stats-row">
+      <!-- Overview Card -->
+      <div class="card overview-card">
+        <div class="card-header">
+          <span class="card-title">Overview</span>
+          <button class="card-menu">···</button>
+        </div>
+        <div class="overview-body">
+          <div class="donut-wrapper">
+            <svg class="donut" viewBox="0 0 100 100">
+              <circle class="donut-track" cx="50" cy="50" r="38" />
+              <circle class="donut-seg" cx="50" cy="50" r="38" id="donutSeg" />
+            </svg>
+            <div class="donut-label" id="donutPct">0%</div>
+          </div>
+          <div class="overview-stats">
+            <div class="stat-row"><span class="stat-dot done"></span>Tasks Completed: <strong id="statDone">0</strong></div>
+            <div class="stat-row"><span class="stat-dot pending"></span>Pending: <strong id="statPending">0</strong></div>
+            <div class="stat-row"><span class="stat-dot overdue"></span>In Progress: <strong id="statProgress">0</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity Card -->
+      <div class="card activity-card">
+        <div class="card-header">
+          <span class="card-title">Activity</span>
+          <span class="card-subtitle">Progress productivity</span>
+          <button class="card-menu">···</button>
+        </div>
+        <div class="chart-area">
+          <canvas id="activityChart" width="320" height="110"></canvas>
+          <div class="chart-days">
+            <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span>
+            <span>Thu</span><span>Fri</span><span>Sat</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Urgent Tasks Card -->
+      <div class="card urgent-card">
+        <div class="card-header">
+          <span class="card-title">Urgent Tasks</span>
+          <span class="priority-label">Priority</span>
+          <button class="card-menu">···</button>
+        </div>
+        <div class="urgent-list" id="urgentList">
+          <div class="empty-state">No urgent tasks</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Kanban Preview -->
+    <div class="kanban-section">
+      <h2 class="section-title">Kanban Board</h2>
+      <div class="kanban-columns" id="dashKanban">
+        <!-- rendered by JS -->
+      </div>
+    </div>
+  </section>
+
+  <!-- ── MY TASKS VIEW ── -->
+  <section class="view" id="view-tasks">
+    <div class="view-toolbar">
+      <div class="filter-tabs">
+        <button class="filter-tab active" data-filter="all">All</button>
+        <button class="filter-tab" data-filter="todo">To Do</button>
+        <button class="filter-tab" data-filter="in-progress">In Progress</button>
+        <button class="filter-tab" data-filter="done">Done</button>
+      </div>
+      <button class="btn-primary small" id="addTaskInline">+ Add Task</button>
+    </div>
+    <div class="task-table-wrapper">
+      <table class="task-table">
+        <thead>
+          <tr>
+            <th>ID</th><th>Description</th><th>Status</th><th>Priority</th>
+            <th>Created</th><th>Updated</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="taskTableBody">
+          <tr><td colspan="7" class="empty-state">No tasks yet — create one!</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── KANBAN VIEW ── -->
+  <section class="view" id="view-kanban">
+    <div class="kanban-full" id="kanbanFull">
+      <!-- rendered by JS -->
+    </div>
+  </section>
+
+  <!-- ── ANALYTICS VIEW ── -->
+  <section class="view" id="view-analytics">
+    <div class="analytics-grid">
+      <div class="card analytics-card">
+        <div class="card-header"><span class="card-title">Task Distribution</span></div>
+        <canvas id="pieChart" width="260" height="260"></canvas>
+        <div class="pie-legend" id="pieLegend"></div>
+      </div>
+      <div class="card analytics-card">
+        <div class="card-header"><span class="card-title">Status Summary</span></div>
+        <div class="bar-chart" id="barChart"></div>
+      </div>
+      <div class="card analytics-card wide">
+        <div class="card-header"><span class="card-title">Weekly Activity</span></div>
+        <canvas id="weeklyChart" width="600" height="160"></canvas>
+        <div class="chart-days wide-days">
+          <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span>
+          <span>Thu</span><span>Fri</span><span>Sat</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── PROJECTS VIEW ── -->
+  <section class="view" id="view-projects">
+    <div class="projects-grid" id="projectsGrid">
+      <!-- rendered by JS -->
+    </div>
+    <button class="btn-primary" id="addProjectBtn" style="margin-top:1.5rem">+ New Project</button>
+  </section>
+
+  <!-- ── SETTINGS VIEW ── -->
+  <section class="view" id="view-settings">
+    <div class="settings-grid">
+
+      <div class="card settings-card">
+        <h3 class="settings-section-title">🎨 Theme</h3>
+        <div class="theme-swatches" id="themeSwatches">
+          <button class="swatch" data-theme="light" title="Light">☀️ Light</button>
+          <button class="swatch" data-theme="dark" title="Dark">🌙 Dark</button>
+          <button class="swatch" data-theme="ocean" title="Ocean">🌊 Ocean</button>
+          <button class="swatch" data-theme="forest" title="Forest">🌿 Forest</button>
+          <button class="swatch" data-theme="sunset" title="Sunset">🌅 Sunset</button>
+          <button class="swatch" data-theme="midnight" title="Midnight">🌌 Midnight</button>
+          <button class="swatch" data-theme="rose" title="Rose">🌸 Rose</button>
+          <button class="swatch" data-theme="amber" title="Amber">🍊 Amber</button>
+        </div>
+      </div>
+
+      <div class="card settings-card">
+        <h3 class="settings-section-title">🖼️ Background</h3>
+        <div class="bg-options">
+          <label class="bg-opt">
+            <input type="radio" name="bg" value="none" checked /> Solid Color
+          </label>
+          <label class="bg-opt">
+            <input type="radio" name="bg" value="gradient" /> Gradient
+          </label>
+          <label class="bg-opt">
+            <input type="radio" name="bg" value="image" /> Custom Image URL
+          </label>
+          <label class="bg-opt">
+            <input type="radio" name="bg" value="upload" /> Upload Image
+          </label>
+        </div>
+        <div id="bgSolidOpt" class="bg-sub">
+          <input type="color" id="bgColor" value="#f0f2f5" />
+          <label>Pick background color</label>
+        </div>
+        <div id="bgGradientOpt" class="bg-sub hidden">
+          <select id="gradientSelect">
+            <option value="linear-gradient(135deg,#667eea,#764ba2)">Purple Dream</option>
+            <option value="linear-gradient(135deg,#f093fb,#f5576c)">Pink Flamingo</option>
+            <option value="linear-gradient(135deg,#4facfe,#00f2fe)">Ocean Blue</option>
+            <option value="linear-gradient(135deg,#43e97b,#38f9d7)">Green Mint</option>
+            <option value="linear-gradient(135deg,#fa709a,#fee140)">Peach Sunrise</option>
+            <option value="linear-gradient(135deg,#30cfd0,#330867)">Deep Space</option>
+            <option value="linear-gradient(135deg,#a18cd1,#fbc2eb)">Lavender Mist</option>
+            <option value="linear-gradient(135deg,#ffecd2,#fcb69f)">Warm Sand</option>
+          </select>
+        </div>
+        <div id="bgImageOpt" class="bg-sub hidden">
+          <input type="url" id="bgImageUrl" placeholder="https://example.com/image.jpg" />
+          <button class="btn-secondary small" id="applyImageUrl">Apply</button>
+        </div>
+        <div id="bgUploadOpt" class="bg-sub hidden">
+          <input type="file" id="bgUpload" accept="image/*" />
+        </div>
+        <button class="btn-secondary" id="resetBg" style="margin-top:.75rem">Reset Background</button>
+      </div>
+
+      <div class="card settings-card">
+        <h3 class="settings-section-title">⚙️ Preferences</h3>
+        <label class="pref-row">
+          <span>Sidebar collapsed</span>
+          <input type="checkbox" id="sidebarCollapse" />
+        </label>
+        <label class="pref-row">
+          <span>Compact task list</span>
+          <input type="checkbox" id="compactMode" />
+        </label>
+        <label class="pref-row">
+          <span>Accent color</span>
+          <input type="color" id="accentColor" value="#4f6ef7" />
+        </label>
+      </div>
+
+      <div class="card settings-card">
+        <h3 class="settings-section-title">💾 Data</h3>
+        <p class="settings-hint">Tasks are stored in <code>tasks.json</code> on the server.</p>
+        <button class="btn-secondary" id="exportBtn">⬇ Export JSON</button>
+        <button class="btn-danger" id="clearAllBtn">🗑 Clear All Tasks</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ════════════════════════ MODALS ════════════════════════ -->
+
+<!-- Create / Edit Task Modal -->
+<div class="modal-overlay hidden" id="taskModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modalTitle">Create Task</h2>
+      <button class="modal-close" id="closeModal">✕</button>
+    </div>
+    <form id="taskForm">
+      <input type="hidden" id="editId" />
+      <div class="form-group">
+        <label>Description *</label>
+        <input type="text" id="fDesc" placeholder="What needs to be done?" required />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Status</label>
+          <select id="fStatus">
+            <option value="todo">To Do</option>
+            <option value="in-progress">In Progress</option>
+            <option value="done">Done</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Priority</label>
+          <select id="fPriority">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Project / Tag</label>
+        <input type="text" id="fProject" placeholder="e.g. Design, Backend…" />
+      </div>
+      <div class="form-group">
+        <label>Assignee</label>
+        <input type="text" id="fAssignee" placeholder="Name" />
+      </div>
+      <div class="form-group">
+        <label>Progress <span id="progressVal">0</span>%</label>
+        <input type="range" id="fProgress" min="0" max="100" value="0" />
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" id="cancelModal">Cancel</button>
+        <button type="submit" class="btn-primary">Save Task</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Notification Panel -->
+<div class="notif-panel hidden" id="notifPanel">
+  <div class="notif-header">Notifications</div>
+  <div id="notifList" class="notif-list">
+    <div class="notif-item">👋 Welcome to TrackFlow!</div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast hidden" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

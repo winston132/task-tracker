@@ -1,0 +1,14 @@
+services:
+  task-tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trackflow
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist tasks.json on your host machine so data survives container restarts
+      - ./tasks.json:/app/tasks.json
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production

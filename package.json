@@ -1,0 +1,16 @@
+{
+  "name": "task-tracker",
+  "version": "1.0.0",
+  "description": "Task Tracker CLI & Web Dashboard",
+  "main": "server.js",
+  "bin": {
+    "task-cli": "./task-cli.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "cli": "node task-cli.js"
+  },
+  "keywords": ["task", "tracker", "cli", "dashboard"],
+  "author": "",
+  "license": "MIT"
+}
