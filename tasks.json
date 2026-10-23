@@ -1,5 +1,5 @@
 {
-  "nextId": 2,
+  "nextId": 6,
   "tasks": [
     {
       "id": 1,
@@ -11,6 +11,29 @@
       "assignee": "",
       "createdAt": "2026-10-22T17:18:33.323Z",
       "updatedAt": "2026-10-22T17:18:33.323Z"
+    },
+    {
+      "id": 2,
+      "description": "running",
+      "status": "todo",
+      "priority": "medium",
+      "project": "",
+      "progress": 0,
+      "assignee": "",
+      "createdAt": "2026-10-22T17:19:37.154Z",
+      "updatedAt": "2026-10-22T17:19:37.154Z"
+    },
+    {
+      "id": 5,
+      "description": "bath",
+      "status": "done",
+      "priority": "medium",
+      "project": "",
+      "progress": 0,
+      "assignee": "",
+      "dueDate": "2026-10-23T07:56:00.000Z",
+      "createdAt": "2026-10-23T07:54:56.821Z",
+      "updatedAt": "2026-10-23T07:55:29.889Z"
     }
   ]
 }
