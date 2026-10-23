@@ -1,6 +1,10 @@
 # TrackFlow — Task Tracker CLI & Web Dashboard
 
-A full-featured **Task Tracker** with both a **command-line interface (CLI)** and a beautiful **web dashboard** — built with zero external dependencies (pure Node.js + vanilla HTML/CSS/JS).
+> **Project URL / Repository**: [https://github.com/winston132/task-tracker](https://github.com/winston132/task-tracker)  
+> **Roadmap.sh Project Page**: [https://roadmap.sh/projects/task-tracker](https://roadmap.sh/projects/task-tracker)  
+> **Local App URL**: [http://localhost:3000](http://localhost:3000)
+
+A full-featured **Task Tracker** with both a **command-line interface (CLI)** and a beautiful **web dashboard** — built with zero external dependencies (pure Node.js + vanilla HTML/CSS/JS) with full Docker container support.
 
 ![TrackFlow Dashboard](./screenshot.png)
 
