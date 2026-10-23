@@ -7,8 +7,10 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Mount the tasks.json FILE directly (must exist on host before running)
       - ./tasks.json:/app/tasks.json
+      - ./public:/app/public
+      - ./server.js:/app/server.js
+      - ./task-cli.js:/app/task-cli.js
     restart: unless-stopped
     environment:
       - NODE_ENV=production

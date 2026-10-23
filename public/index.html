@@ -78,8 +78,9 @@
       </div>
     </div>
     <div class="topbar-right">
+      <div class="conn-badge" id="connBadge" title="Click to test connection">🟢 Connected</div>
       <button class="btn-ghost" id="notifBtn">🔔 Notifications</button>
-      <button class="btn-ghost">❓ Help</button>
+      <button class="btn-ghost" id="helpBtn">❓ Help</button>
       <button class="btn-primary" id="createTaskBtn">+ Create Task</button>
     </div>
   </header>
@@ -106,7 +107,8 @@
           <div class="overview-stats">
             <div class="stat-row"><span class="stat-dot done"></span>Tasks Completed: <strong id="statDone">0</strong></div>
             <div class="stat-row"><span class="stat-dot pending"></span>Pending: <strong id="statPending">0</strong></div>
-            <div class="stat-row"><span class="stat-dot overdue"></span>In Progress: <strong id="statProgress">0</strong></div>
+            <div class="stat-row"><span class="stat-dot in-prog"></span>In Progress: <strong id="statProgress">0</strong></div>
+            <div class="stat-row"><span class="stat-dot overdue"></span>Overdue: <strong id="statOverdue">0</strong></div>
           </div>
         </div>
       </div>
@@ -390,6 +392,41 @@
         <button class="snooze-btn" id="dalertSnooze60">1 hour</button>
       </div>
       <button class="btn-dismiss-deadline" id="dalertDismiss">Dismiss</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════ HELP MODAL ════════════════════════ -->
+<div class="modal-overlay hidden" id="helpModal">
+  <div class="modal" style="width: 540px;">
+    <div class="modal-header">
+      <h2>TrackFlow Quick Guide &amp; Help</h2>
+      <button class="modal-close" id="closeHelpModal">✕</button>
+    </div>
+    <div class="help-content" style="font-size: .88rem; line-height: 1.6; color: var(--text);">
+      <h4 style="margin-bottom: .4rem; color: var(--accent);">📌 Features &amp; Navigation</h4>
+      <ul style="padding-left: 1.2rem; margin-bottom: 1rem; color: var(--text-muted);">
+        <li><strong>Dashboard:</strong> Visual overview, productivity chart, urgent tasks &amp; mini Kanban.</li>
+        <li><strong>My Tasks:</strong> Filterable table by status (All, To Do, In Progress, Done).</li>
+        <li><strong>Kanban Board:</strong> Drag/click cards, change status, set deadlines, and snooze.</li>
+        <li><strong>Analytics:</strong> Interactive pie chart, bar chart, and weekly productivity area chart.</li>
+        <li><strong>Projects:</strong> Auto-grouped by project tag with progress indicators.</li>
+        <li><strong>Settings:</strong> 8 custom themes, custom solid/gradient/image background options.</li>
+      </ul>
+      <h4 style="margin-bottom: .4rem; color: var(--accent);">⏰ Deadlines &amp; Notifications</h4>
+      <ul style="padding-left: 1.2rem; margin-bottom: 1rem; color: var(--text-muted);">
+        <li>Set a <strong>Due Date &amp; Time</strong> on any task to get reminder alerts.</li>
+        <li>Click <strong>Enable Notifications</strong> on the top bar to get system notifications.</li>
+        <li>When a task is due soon or overdue, an alert popup appears with <strong>Snooze (15m, 30m, 1h)</strong> and <strong>Mark Done</strong> buttons.</li>
+      </ul>
+      <h4 style="margin-bottom: .4rem; color: var(--accent);">💻 CLI Commands</h4>
+      <pre style="background: var(--surface2); padding: .65rem; border-radius: 8px; font-size: .8rem; overflow-x: auto; margin-bottom: 1rem;"><code>node task-cli.js add "Task title"
+node task-cli.js list
+node task-cli.js mark-done &lt;id&gt;
+node task-cli.js delete &lt;id&gt;</code></pre>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" id="ackHelpModal">Got it!</button>
     </div>
   </div>
 </div>

@@ -15,20 +15,35 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 // ─── Data Helpers ────────────────────────────────────────────────────────────
 
 function loadTasks() {
+  let data = { nextId: 1, tasks: [] };
   if (!fs.existsSync(DATA_FILE)) {
-    const initial = { nextId: 1, tasks: [] };
-    fs.writeFileSync(DATA_FILE, JSON.stringify(initial, null, 2));
-    return initial;
+    try {
+      fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+    } catch (e) {
+      console.error('Error creating tasks.json:', e.message);
+    }
+    return data;
   }
   try {
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  } catch {
-    return { nextId: 1, tasks: [] };
+    data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  } catch (e) {
+    console.error('Error reading tasks.json, using default structure:', e.message);
+    data = { nextId: 1, tasks: [] };
   }
+  if (!data || typeof data !== 'object') data = { nextId: 1, tasks: [] };
+  if (!Array.isArray(data.tasks)) data.tasks = [];
+  if (typeof data.nextId !== 'number' || isNaN(data.nextId)) {
+    data.nextId = data.tasks.length > 0 ? Math.max(...data.tasks.map(t => (t && t.id) || 0)) + 1 : 1;
+  }
+  return data;
 }
 
 function saveTasks(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error('Error saving tasks.json:', e.message);
+  }
 }
 
 function now() {
@@ -70,6 +85,8 @@ function json(res, status, data) {
   res.writeHead(status, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': '*',
     'Content-Length': Buffer.byteLength(body),
   });
   res.end(body);
@@ -80,7 +97,10 @@ function serveStatic(res, filePath) {
   const mime = MIME[ext] || 'application/octet-stream';
   try {
     const content = fs.readFileSync(filePath);
-    res.writeHead(200, { 'Content-Type': mime });
+    res.writeHead(200, {
+      'Content-Type': mime,
+      'Access-Control-Allow-Origin': '*',
+    });
     res.end(content);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -99,8 +119,9 @@ async function handleAPI(req, res) {
   if (method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': '*',
+      'Access-Control-Max-Age': '86400',
     });
     return res.end();
   }

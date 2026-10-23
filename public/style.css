@@ -249,6 +249,34 @@ body.has-bg-image .main-content { background: rgba(var(--bg-rgb,240,242,245),.85
 .search-icon { color: var(--text-muted); font-size: .9rem; }
 .topbar-right { margin-left: auto; display: flex; gap: .5rem; align-items: center; }
 
+.conn-badge {
+  font-size: .75rem;
+  font-weight: 600;
+  padding: .3rem .65rem;
+  border-radius: 99px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  white-space: nowrap;
+  transition: all .2s;
+  user-select: none;
+}
+.conn-badge.connected {
+  background: #dcfce7;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+}
+.conn-badge.offline {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  animation: pulse 2s infinite;
+}
+.stat-dot.in-prog {
+  background: var(--progress-color);
+}
+
 /* ── Buttons ────────────────────────────────────────────────── */
 .btn-primary {
   background: var(--accent); color: #fff;

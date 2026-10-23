@@ -1,13 +1,32 @@
 /* ════════════════════════════════════════════════════════════════════
    app.js — TrackFlow Frontend Logic
    Pure vanilla JS — no external libraries.
-   Includes: full CRUD, Kanban, Analytics, Projects, Settings,
-             Theme/BG customization, Deadline alerts & notifications.
+   Features:
+     - Robust API client with seamless Offline / LocalStorage fallback
+     - Full CRUD with persistent storage (tasks.json / localStorage)
+     - Interactive Dashboard with animated donut, productivity chart, & stats
+     - Full Kanban Board with quick actions & context menus
+     - Table view with search, filter tabs & inline status change
+     - Canvas-based Analytics (distribution pie chart, bar chart, weekly curve)
+     - Projects grouping with progress metrics
+     - Custom Settings: 8 color themes + solid/gradient/image backgrounds
+     - Deadline & alert system with snooze & browser notifications
+     - Interactive Help guide modal
    ════════════════════════════════════════════════════════════════════ */
 
 'use strict';
 
-const API = '/api';
+// ── API Configuration & Connection Detection ──────────────────────────
+function getApiBase() {
+  if (window.location.protocol === 'file:' || !window.location.port || window.location.port !== '3000') {
+    return 'http://localhost:3000/api';
+  }
+  return '/api';
+}
+const API = getApiBase();
+
+let isServerOnline = false;
+let isSyncing = false;
 
 // ── State ────────────────────────────────────────────────────────────
 let tasks         = [];
@@ -18,62 +37,259 @@ let editingId     = null;
 // Notification / deadline state
 let alertQueue    = [];      // queued {task, type} alerts
 let currentAlert  = null;    // currently displayed alert
-// Persist fired notifications in localStorage so refresh won't re-fire
 const firedNotifs = new Set(
   JSON.parse(localStorage.getItem('tf-fired-notifs') || '[]')
 );
 
 // ── DOM Refs ─────────────────────────────────────────────────────────
-const sidebar      = document.getElementById('sidebar');
-const pageTitle    = document.getElementById('pageTitle');
-const taskModal    = document.getElementById('taskModal');
-const taskForm     = document.getElementById('taskForm');
-const modalTitle   = document.getElementById('modalTitle');
-const editIdInput  = document.getElementById('editId');
-const fDesc        = document.getElementById('fDesc');
-const fStatus      = document.getElementById('fStatus');
-const fPriority    = document.getElementById('fPriority');
-const fProject     = document.getElementById('fProject');
-const fAssignee    = document.getElementById('fAssignee');
-const fDueDate     = document.getElementById('fDueDate');
-const fProgress    = document.getElementById('fProgress');
-const progressVal  = document.getElementById('progressVal');
-const notifPanel   = document.getElementById('notifPanel');
-const notifList    = document.getElementById('notifList');
-const toast        = document.getElementById('toast');
-const globalSearch = document.getElementById('globalSearch');
-const notifBar     = document.getElementById('notifBar');
-const deadlineAlert= document.getElementById('deadlineAlert');
+const sidebar       = document.getElementById('sidebar');
+const pageTitle     = document.getElementById('pageTitle');
+const taskModal     = document.getElementById('taskModal');
+const taskForm      = document.getElementById('taskForm');
+const modalTitle    = document.getElementById('modalTitle');
+const editIdInput   = document.getElementById('editId');
+const fDesc         = document.getElementById('fDesc');
+const fStatus       = document.getElementById('fStatus');
+const fPriority     = document.getElementById('fPriority');
+const fProject      = document.getElementById('fProject');
+const fAssignee     = document.getElementById('fAssignee');
+const fDueDate      = document.getElementById('fDueDate');
+const fProgress     = document.getElementById('fProgress');
+const progressVal   = document.getElementById('progressVal');
+const notifPanel    = document.getElementById('notifPanel');
+const notifList     = document.getElementById('notifList');
+const toast         = document.getElementById('toast');
+const globalSearch  = document.getElementById('globalSearch');
+const notifBar      = document.getElementById('notifBar');
+const deadlineAlert = document.getElementById('deadlineAlert');
+const connBadge     = document.getElementById('connBadge');
+const helpModal     = document.getElementById('helpModal');
 
-// ── API Helpers ───────────────────────────────────────────────────────
+// ── Local Storage Cache & Fallback ────────────────────────────────────
+function getLocalTasks() {
+  try {
+    const raw = localStorage.getItem('tf-local-tasks');
+    return raw ? JSON.parse(raw) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function setLocalTasks(arr) {
+  try {
+    localStorage.setItem('tf-local-tasks', JSON.stringify(arr));
+  } catch (e) {
+    console.error('LocalStorage write error:', e);
+  }
+}
+
+function updateConnBadge(online) {
+  isServerOnline = online;
+  if (!connBadge) return;
+  if (online) {
+    connBadge.className = 'conn-badge connected';
+    connBadge.textContent = '🟢 Server Connected';
+    connBadge.title = 'Connected to http://localhost:3000 (tasks.json synced). Click to re-check.';
+  } else {
+    connBadge.className = 'conn-badge offline';
+    connBadge.textContent = '🟡 Local Mode (Offline)';
+    connBadge.title = 'Server not reachable. Tasks saved locally. Click to retry connecting to Docker.';
+  }
+}
+
+connBadge?.addEventListener('click', async () => {
+  showToast('Testing connection to server...', 'info');
+  const ok = await checkServerConnection(true);
+  if (ok) {
+    await loadTasks();
+  }
+});
+
+// ── Robust API Client (With Offline Fallback) ─────────────────────────
 async function apiFetch(path, method = 'GET', body = null) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+  };
   if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(API + path, opts);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Request failed');
-  return data;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(API + path, { ...opts, signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Server responded with ${res.status}`);
+    }
+    const data = await res.json();
+    if (!isServerOnline) {
+      updateConnBadge(true);
+    }
+    return data;
+  } catch (err) {
+    // Network / connection error -> gracefully fall back to local storage
+    if (isServerOnline) {
+      console.warn(`Server unreachable (${err.message}). Switching to Local Mode.`);
+      updateConnBadge(false);
+    }
+    return handleLocalFallback(path, method, body);
+  }
+}
+
+function handleLocalFallback(path, method, body) {
+  let local = getLocalTasks();
+
+  // GET /tasks
+  if (path.startsWith('/tasks') && method === 'GET') {
+    return local;
+  }
+
+  // POST /tasks
+  if (path === '/tasks' && method === 'POST') {
+    const nextId = local.length > 0 ? Math.max(...local.map(t => t.id || 0)) + 1 : 1;
+    const newTask = {
+      id: nextId,
+      description: (body && body.description ? body.description.trim() : 'New Task'),
+      status: (body && body.status) || 'todo',
+      priority: (body && body.priority) || 'medium',
+      project: (body && body.project) || '',
+      progress: (body && body.progress) || 0,
+      assignee: (body && body.assignee) || '',
+      dueDate: (body && body.dueDate) || null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      _needsSync: true,
+    };
+    local.push(newTask);
+    setLocalTasks(local);
+    return newTask;
+  }
+
+  // Match /tasks/:id
+  const match = path.match(/^\/tasks\/(\d+)$/);
+  if (match) {
+    const id = parseInt(match[1]);
+    const idx = local.findIndex(t => t.id === id);
+
+    // DELETE /tasks/:id
+    if (method === 'DELETE') {
+      if (idx !== -1) {
+        local.splice(idx, 1);
+        setLocalTasks(local);
+      }
+      return { message: 'Task deleted locally.' };
+    }
+
+    // PUT or PATCH /tasks/:id
+    if (idx !== -1 && (method === 'PUT' || method === 'PATCH')) {
+      local[idx] = {
+        ...local[idx],
+        ...body,
+        id,
+        updatedAt: new Date().toISOString(),
+        _needsSync: true,
+      };
+      setLocalTasks(local);
+      return local[idx];
+    }
+  }
+
+  // GET /stats
+  if (path === '/stats' && method === 'GET') {
+    const done = local.filter(t => t.status === 'done').length;
+    const inProgress = local.filter(t => t.status === 'in-progress').length;
+    const todo = local.filter(t => t.status === 'todo').length;
+    return { total: local.length, done, inProgress, todo, overdue: 0 };
+  }
+
+  return local;
+}
+
+// Check server status periodically & sync local modifications
+async function checkServerConnection(notify = false) {
+  try {
+    const controller = new AbortController();
+    const tId = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(API + '/stats', { signal: controller.signal });
+    clearTimeout(tId);
+    if (res.ok) {
+      if (!isServerOnline) {
+        updateConnBadge(true);
+        if (notify) showToast('🟢 Connected to TrackFlow server!', 'success');
+        await syncLocalToServer();
+      }
+      return true;
+    }
+  } catch (_) {}
+  updateConnBadge(false);
+  if (notify) showToast('⚠️ Running in Local Mode (Server offline). Start Docker to sync.', 'info');
+  return false;
+}
+
+async function syncLocalToServer() {
+  if (isSyncing) return;
+  isSyncing = true;
+  try {
+    const local = getLocalTasks();
+    const unsynced = local.filter(t => t._needsSync);
+    if (unsynced.length > 0) {
+      for (const t of unsynced) {
+        const payload = { ...t };
+        delete payload._needsSync;
+        delete payload.id;
+        await fetch(API + '/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      }
+      showToast(`Synced ${unsynced.length} local task(s) with server ✓`, 'success');
+    }
+    // Refresh tasks from server
+    const remote = await fetch(API + '/tasks').then(r => r.json());
+    if (Array.isArray(remote)) {
+      tasks = remote;
+      setLocalTasks(remote);
+      render();
+    }
+  } catch (err) {
+    console.warn('Sync failed:', err);
+  } finally {
+    isSyncing = false;
+  }
 }
 
 async function loadTasks() {
-  tasks = await apiFetch('/tasks');
+  try {
+    const data = await apiFetch('/tasks');
+    tasks = Array.isArray(data) ? data : [];
+    setLocalTasks(tasks);
+  } catch (e) {
+    console.error('loadTasks error:', e);
+    tasks = getLocalTasks();
+  }
   render();
 }
 
-// ── Toast ────────────────────────────────────────────────────────────
+// ── Toast System ──────────────────────────────────────────────────────
 let toastTimer;
 function showToast(msg, type = 'info') {
+  if (!toast) return;
   toast.textContent = msg;
   toast.className = `toast ${type}`;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.add('hidden'), 3000);
+  toastTimer = setTimeout(() => toast.classList.add('hidden'), 3200);
 }
 
 // ── Navigation ────────────────────────────────────────────────────────
 function switchView(view) {
   currentView = view;
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.getElementById(`view-${view}`).classList.add('active');
+  const targetView = document.getElementById(`view-${view}`);
+  if (targetView) targetView.classList.add('active');
+
   document.querySelectorAll('.nav-item').forEach(n => {
     n.classList.toggle('active', n.dataset.view === view);
   });
@@ -81,70 +297,95 @@ function switchView(view) {
     dashboard: 'Dashboard', tasks: 'My Tasks', kanban: 'Kanban Board',
     analytics: 'Analytics', projects: 'Projects', settings: 'Settings',
   };
-  pageTitle.textContent = titles[view] || view;
+  if (pageTitle) pageTitle.textContent = titles[view] || view;
   render();
 }
 
 document.querySelectorAll('.nav-item').forEach(item => {
-  item.addEventListener('click', e => { e.preventDefault(); switchView(item.dataset.view); });
+  item.addEventListener('click', e => {
+    e.preventDefault();
+    switchView(item.dataset.view);
+  });
 });
 
-// ── Modal ─────────────────────────────────────────────────────────────
-function openModal(task = null) {
+// ── Help Modal ────────────────────────────────────────────────────────
+const helpBtn = document.getElementById('helpBtn');
+const closeHelpModal = document.getElementById('closeHelpModal');
+const ackHelpModal = document.getElementById('ackHelpModal');
+
+helpBtn?.addEventListener('click', () => helpModal?.classList.remove('hidden'));
+closeHelpModal?.addEventListener('click', () => helpModal?.classList.add('hidden'));
+ackHelpModal?.addEventListener('click', () => helpModal?.classList.add('hidden'));
+helpModal?.addEventListener('click', e => { if (e.target === helpModal) helpModal.classList.add('hidden'); });
+
+// ── Task Modal (Create & Edit) ─────────────────────────────────────────
+function openModal(task = null, defaultStatus = 'todo') {
   editingId = task ? task.id : null;
-  modalTitle.textContent = task ? 'Edit Task' : 'Create Task';
-  editIdInput.value = task ? task.id : '';
-  fDesc.value     = task ? task.description          : '';
-  fStatus.value   = task ? task.status               : 'todo';
-  fPriority.value = task ? (task.priority || 'medium'): 'medium';
-  fProject.value  = task ? (task.project  || '')      : '';
-  fAssignee.value = task ? (task.assignee || '')       : '';
-  fDueDate.value  = task && task.dueDate ? toLocalDatetimeInput(task.dueDate) : '';
-  fProgress.value = task ? (task.progress || 0)       : 0;
-  progressVal.textContent = fProgress.value;
-  taskModal.classList.remove('hidden');
-  fDesc.focus();
+  if (modalTitle) modalTitle.textContent = task ? `Edit Task #${task.id}` : 'Create Task';
+  if (editIdInput) editIdInput.value = task ? task.id : '';
+  if (fDesc) fDesc.value = task ? task.description : '';
+  if (fStatus) fStatus.value = task ? task.status : defaultStatus;
+  if (fPriority) fPriority.value = task ? (task.priority || 'medium') : 'medium';
+  if (fProject) fProject.value = task ? (task.project || '') : '';
+  if (fAssignee) fAssignee.value = task ? (task.assignee || '') : '';
+  if (fDueDate) fDueDate.value = task && task.dueDate ? toLocalDatetimeInput(task.dueDate) : '';
+  if (fProgress) {
+    fProgress.value = task ? (task.progress || 0) : 0;
+    if (progressVal) progressVal.textContent = fProgress.value;
+  }
+  taskModal?.classList.remove('hidden');
+  setTimeout(() => fDesc?.focus(), 50);
 }
 
-function closeModal() { taskModal.classList.add('hidden'); }
+function closeModal() {
+  taskModal?.classList.add('hidden');
+  editingId = null;
+}
 
-document.getElementById('createTaskBtn').addEventListener('click', () => openModal());
-document.getElementById('addTaskInline').addEventListener('click', () => openModal());
-document.getElementById('closeModal').addEventListener('click', closeModal);
-document.getElementById('cancelModal').addEventListener('click', closeModal);
-taskModal.addEventListener('click', e => { if (e.target === taskModal) closeModal(); });
-fProgress.addEventListener('input', () => { progressVal.textContent = fProgress.value; });
+document.getElementById('createTaskBtn')?.addEventListener('click', () => openModal());
+document.getElementById('addTaskInline')?.addEventListener('click', () => openModal());
+document.getElementById('closeModal')?.addEventListener('click', closeModal);
+document.getElementById('cancelModal')?.addEventListener('click', closeModal);
+taskModal?.addEventListener('click', e => { if (e.target === taskModal) closeModal(); });
+fProgress?.addEventListener('input', () => { if (progressVal) progressVal.textContent = fProgress.value; });
 
-taskForm.addEventListener('submit', async e => {
+taskForm?.addEventListener('submit', async e => {
   e.preventDefault();
+  const desc = fDesc.value.trim();
+  if (!desc) {
+    showToast('Task description cannot be empty', 'error');
+    return;
+  }
   const dueDateRaw = fDueDate.value;
   const payload = {
-    description: fDesc.value.trim(),
+    description: desc,
     status:    fStatus.value,
     priority:  fPriority.value,
     project:   fProject.value.trim(),
     assignee:  fAssignee.value.trim(),
     dueDate:   dueDateRaw ? new Date(dueDateRaw).toISOString() : null,
-    progress:  parseInt(fProgress.value),
+    progress:  parseInt(fProgress.value) || 0,
   };
+
   try {
     if (editingId) {
       await apiFetch(`/tasks/${editingId}`, 'PUT', payload);
-      // Clear fired notifs for this task so new deadline re-fires
       firedNotifs.delete(`${editingId}-warn`);
       firedNotifs.delete(`${editingId}-over`);
       saveFiredNotifs();
-      showToast('Task updated ✓', 'success');
-      addNotif(`Task #${editingId} updated`);
+      showToast('Task updated successfully ✓', 'success');
+      addNotif(`Task #${editingId} updated: "${desc}"`);
     } else {
       const created = await apiFetch('/tasks', 'POST', payload);
-      showToast(`Task added (ID: ${created.id}) ✓`, 'success');
-      addNotif(`New task: "${created.description}"${created.dueDate ? ' ⏰ ' + fmtDateTime(created.dueDate) : ''}`);
+      showToast(`Task created (ID: ${created.id}) ✓`, 'success');
+      addNotif(`New task created: "${created.description}"${created.dueDate ? ' ⏰ ' + fmtDateTime(created.dueDate) : ''}`);
     }
     closeModal();
     await loadTasks();
   } catch (err) {
-    showToast('Error: ' + err.message, 'error');
+    showToast('Notice: ' + err.message, 'info');
+    closeModal();
+    await loadTasks();
   }
 });
 
@@ -159,27 +400,30 @@ async function deleteTask(id) {
     showToast(`Task #${id} deleted`, 'info');
     addNotif(`Task #${id} deleted`);
     await loadTasks();
-  } catch (err) { showToast('Error: ' + err.message, 'error'); }
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
 }
 
 async function patchStatus(id, status) {
   try {
     await apiFetch(`/tasks/${id}`, 'PATCH', { status });
     if (status === 'done') {
-      // Clear alerts for this task when marked done
       firedNotifs.delete(`${id}-warn`);
       firedNotifs.delete(`${id}-over`);
       saveFiredNotifs();
-      // Close alert if it's the current task being alerted
       if (currentAlert && currentAlert.task.id === id) closeDeadlineAlert();
     }
     await loadTasks();
-    showToast(`Marked as "${status}"`, 'success');
-  } catch (err) { showToast('Error: ' + err.message, 'error'); }
+    showToast(`Status updated to "${status}"`, 'success');
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
 }
 
-// ── Notifications ─────────────────────────────────────────────────────
+// ── Notifications Drawer ──────────────────────────────────────────────
 function addNotif(msg) {
+  if (!notifList) return;
   const item = document.createElement('div');
   item.className = 'notif-item';
   const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -187,33 +431,33 @@ function addNotif(msg) {
   notifList.prepend(item);
 }
 
-document.getElementById('notifBtn').addEventListener('click', e => {
+document.getElementById('notifBtn')?.addEventListener('click', e => {
   e.stopPropagation();
-  notifPanel.classList.toggle('hidden');
+  notifPanel?.classList.toggle('hidden');
 });
 document.addEventListener('click', e => {
-  if (!notifPanel.contains(e.target)) notifPanel.classList.add('hidden');
+  if (notifPanel && !notifPanel.contains(e.target)) notifPanel.classList.add('hidden');
 });
 
-// ── Search ────────────────────────────────────────────────────────────
-globalSearch.addEventListener('input', debounce(() => {
-  const q = globalSearch.value.toLowerCase();
+// ── Global Search ─────────────────────────────────────────────────────
+globalSearch?.addEventListener('input', debounce(() => {
+  const q = globalSearch.value.toLowerCase().trim();
   if (!q) { render(); return; }
   const filtered = tasks.filter(t =>
-    t.description.toLowerCase().includes(q) ||
-    (t.project  || '').toLowerCase().includes(q) ||
+    (t.description || '').toLowerCase().includes(q) ||
+    (t.project || '').toLowerCase().includes(q) ||
     (t.assignee || '').toLowerCase().includes(q)
   );
   renderTaskTable(filtered);
   if (currentView !== 'tasks') switchView('tasks');
-}, 250));
+}, 200));
 
 function debounce(fn, ms) {
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 
-// ── Render Dispatch ───────────────────────────────────────────────────
+// ── Master Render Dispatch ────────────────────────────────────────────
 function render() {
   renderDashboard();
   renderTaskTable();
@@ -222,7 +466,7 @@ function render() {
   renderProjects();
 }
 
-// ── Dashboard ─────────────────────────────────────────────────────────
+// ── Dashboard View ────────────────────────────────────────────────────
 function renderDashboard() {
   const done     = tasks.filter(t => t.status === 'done').length;
   const inProg   = tasks.filter(t => t.status === 'in-progress').length;
@@ -232,35 +476,40 @@ function renderDashboard() {
   const pct      = total ? Math.round((done / total) * 100) : 0;
   const circ     = 238.76;
 
-  document.getElementById('donutPct').textContent   = pct + '%';
-  document.getElementById('statDone').textContent    = done;
-  document.getElementById('statPending').textContent = todo;
-  document.getElementById('statProgress').textContent= inProg;
+  const donutPctEl = document.getElementById('donutPct');
+  const statDoneEl = document.getElementById('statDone');
+  const statPendingEl = document.getElementById('statPending');
+  const statProgressEl = document.getElementById('statProgress');
+  const statOverdueEl = document.getElementById('statOverdue');
+  const donutSegEl = document.getElementById('donutSeg');
 
-  // Update overdue count label (the third stat row shows in-progress — add overdue badge)
-  const overdueEl = document.getElementById('statOverdue');
-  if (overdueEl) overdueEl.textContent = overdue;
+  if (donutPctEl) donutPctEl.textContent = pct + '%';
+  if (statDoneEl) statDoneEl.textContent = done;
+  if (statPendingEl) statPendingEl.textContent = todo;
+  if (statProgressEl) statProgressEl.textContent = inProg;
+  if (statOverdueEl) statOverdueEl.textContent = overdue;
+  if (donutSegEl) donutSegEl.style.strokeDashoffset = circ - (circ * pct / 100);
 
-  document.getElementById('donutSeg').style.strokeDashoffset = circ - (circ * pct / 100);
-
-  // Urgent tasks (high priority, not done)
-  const urgent = tasks.filter(t => t.priority === 'high' && t.status !== 'done').slice(0, 5);
+  // Urgent tasks (high priority or due within 1 hour, not completed)
+  const urgent = tasks.filter(t => (t.priority === 'high' || isDueWithinHour(t)) && t.status !== 'done').slice(0, 5);
   const ul = document.getElementById('urgentList');
-  ul.innerHTML = urgent.length ? urgent.map(t => `
-    <div class="urgent-item">
-      <input type="checkbox" class="urg-check" ${t.status === 'done' ? 'checked' : ''}
-        onchange="patchStatus(${t.id}, this.checked ? 'done' : 'todo')" />
-      <span class="urg-desc" title="${esc(t.description)}">${esc(t.description)}</span>
-      ${dueDateBadge(t)}
-      <span class="badge high">High</span>
-    </div>`).join('')
-  : '<div class="empty-state">No urgent tasks 🎉</div>';
+  if (ul) {
+    ul.innerHTML = urgent.length ? urgent.map(t => `
+      <div class="urgent-item">
+        <input type="checkbox" class="urg-check" ${t.status === 'done' ? 'checked' : ''}
+          onchange="patchStatus(${t.id}, this.checked ? 'done' : 'todo')" />
+        <span class="urg-desc" title="${esc(t.description)}">${esc(t.description)}</span>
+        ${dueDateBadge(t)}
+        <span class="badge ${t.priority || 'high'}">${cap(t.priority || 'high')}</span>
+      </div>`).join('')
+    : '<div class="empty-state">No urgent tasks 🎉</div>';
+  }
 
   drawActivityChart();
   renderKanban('dashKanban', true);
 }
 
-// ── Activity Chart (canvas) ───────────────────────────────────────────
+// ── Activity Chart (Canvas Line/Area) ─────────────────────────────────
 function drawActivityChart() {
   const canvas = document.getElementById('activityChart');
   if (!canvas) return;
@@ -270,8 +519,8 @@ function drawActivityChart() {
 
   const base = Math.max(tasks.length, 5);
   const pts = [
-    Math.round(base*.3), Math.round(base*.5), Math.round(base*.4),
-    Math.round(base*.8), Math.round(base*.6), Math.round(base*.9), Math.round(base*.7)
+    Math.round(base * 0.3), Math.round(base * 0.5), Math.round(base * 0.4),
+    Math.round(base * 0.8), Math.round(base * 0.6), Math.round(base * 0.9), Math.round(base * 0.7)
   ];
   drawSmoothChart(ctx, pts, W, H, getAccentColor());
 }
@@ -288,29 +537,39 @@ function drawSmoothChart(ctx, pts, W, H, accent, padT=10, padB=10, padL=10, padR
   grad.addColorStop(0, accent + '55');
   grad.addColorStop(1, accent + '00');
 
-  // Fill
+  // Fill area under curve
   ctx.beginPath();
   ctx.moveTo(xs[0], ys[0]);
   for (let i = 1; i < xs.length; i++) {
     const cx = (xs[i-1] + xs[i]) / 2;
     ctx.bezierCurveTo(cx, ys[i-1], cx, ys[i], xs[i], ys[i]);
   }
-  ctx.lineTo(xs[xs.length-1], H); ctx.lineTo(xs[0], H); ctx.closePath();
-  ctx.fillStyle = grad; ctx.fill();
+  ctx.lineTo(xs[xs.length-1], H);
+  ctx.lineTo(xs[0], H);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
 
-  // Line
-  ctx.beginPath(); ctx.moveTo(xs[0], ys[0]);
+  // Smooth line
+  ctx.beginPath();
+  ctx.moveTo(xs[0], ys[0]);
   for (let i = 1; i < xs.length; i++) {
     const cx = (xs[i-1] + xs[i]) / 2;
     ctx.bezierCurveTo(cx, ys[i-1], cx, ys[i], xs[i], ys[i]);
   }
-  ctx.strokeStyle = accent; ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
 
-  // Dots
+  // Highlight points
   xs.forEach((x, i) => {
-    ctx.beginPath(); ctx.arc(x, ys[i], 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = accent; ctx.fill();
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, ys[i], 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = accent;
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
   });
 }
 
@@ -319,29 +578,29 @@ function getAccentColor() {
     .getPropertyValue('--accent').trim() || '#4f6ef7';
 }
 
-// ── Kanban ────────────────────────────────────────────────────────────
+// ── Kanban Board ──────────────────────────────────────────────────────
 function renderKanban(containerId, mini = false) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
   const cols = [
-    { id: 'todo',        label: 'To Do' },
-    { id: 'in-progress', label: 'In Progress' },
-    { id: 'done',        label: 'Review/Completed' },
+    { id: 'todo',        label: 'To Do',            defaultStatus: 'todo' },
+    { id: 'in-progress', label: 'In Progress',       defaultStatus: 'in-progress' },
+    { id: 'done',        label: 'Review/Completed',  defaultStatus: 'done' },
   ];
 
   container.innerHTML = cols.map(col => {
     const colTasks = tasks.filter(t => t.status === col.id);
     const cards    = colTasks.map(t => kanbanCard(t, mini)).join('');
     return `
-      <div class="kanban-col">
+      <div class="kanban-col" data-col="${col.id}">
         <div class="kanban-col-header">
-          ${esc(col.label)}
+          <span>${esc(col.label)}</span>
           <span class="kanban-col-count">${colTasks.length}</span>
-          <button class="btn-icon" title="Options">···</button>
+          <button class="btn-icon" title="Options" onclick="openModal(null, '${col.defaultStatus}')">＋</button>
         </div>
-        <div class="kanban-cards">${cards || '<div class="empty-state">Empty</div>'}</div>
-        ${mini ? '' : `<button class="add-task-btn" onclick="openModal()">+ Add Task</button>`}
+        <div class="kanban-cards">${cards || '<div class="empty-state">No tasks here</div>'}</div>
+        ${mini ? '' : `<button class="add-task-btn" onclick="openModal(null, '${col.defaultStatus}')">+ Add Task</button>`}
       </div>`;
   }).join('');
 
@@ -368,7 +627,6 @@ function kanbanCard(t, mini) {
   const doneStyle  = t.status === 'done' ? 'text-decoration:line-through;opacity:.7;' : '';
   const dueBadge   = !mini ? dueDateBadge(t) : '';
 
-  // Card border accent for deadline
   let cardClass = 'kanban-card';
   if (t.status !== 'done') {
     if (isOverdue(t)) cardClass += ' card-overdue';
@@ -389,7 +647,6 @@ function kanbanCard(t, mini) {
     </div>`;
 }
 
-// Card context menu
 function showCardMenu(e, id) {
   e.stopPropagation();
   const old = document.getElementById('cardMenuPop');
@@ -400,13 +657,13 @@ function showCardMenu(e, id) {
   pop.id = 'cardMenuPop';
   pop.style.cssText = `position:fixed;z-index:500;background:var(--surface);border:1px solid var(--border);
     border-radius:10px;box-shadow:var(--shadow-lg);padding:.4rem 0;min-width:170px;
-    left:${e.clientX}px;top:${e.clientY}px`;
+    left:${Math.min(e.clientX, window.innerWidth - 180)}px;top:${Math.min(e.clientY, window.innerHeight - 200)}px`;
   const items = [
     ['✏️ Edit',            () => openModal(t)],
     ['▶️ In Progress',     () => patchStatus(id, 'in-progress')],
     ['✅ Mark Done',        () => patchStatus(id, 'done')],
     ['↩️ Reset to Todo',   () => patchStatus(id, 'todo')],
-    ['⏰ Set Deadline',    () => { openModal(t); setTimeout(() => fDueDate.focus(), 100); }],
+    ['⏰ Set Deadline',    () => { openModal(t); setTimeout(() => fDueDate?.focus(), 100); }],
     ['🗑 Delete',          () => deleteTask(id)],
   ];
   items.forEach(([label, fn]) => {
@@ -421,12 +678,14 @@ function showCardMenu(e, id) {
   document.body.appendChild(pop);
   setTimeout(() => document.addEventListener('click', () => pop.remove(), { once: true }), 0);
 }
+
+// ── Global Scope Bindings for Inline HTML handlers ────────────────────
 window.showCardMenu = showCardMenu;
 window.openModal    = openModal;
 window.patchStatus  = patchStatus;
 window.deleteTask   = deleteTask;
 
-// ── Task Table ────────────────────────────────────────────────────────
+// ── Tasks Table View ──────────────────────────────────────────────────
 function renderTaskTable(filtered = null) {
   const tbody = document.getElementById('taskTableBody');
   if (!tbody) return;
@@ -436,7 +695,7 @@ function renderTaskTable(filtered = null) {
     list = tasks.filter(t => t.status === currentFilter);
   }
   if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No tasks found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No tasks found in this view.</td></tr>';
     return;
   }
 
@@ -467,10 +726,10 @@ function renderTaskTable(filtered = null) {
   }).join('');
 }
 
-// Update table header to include Due Date column
+// Ensure "Due Date" header exists in the table
 (function patchTableHeader() {
   const thead = document.querySelector('.task-table thead tr');
-  if (thead && thead.children.length < 8) {
+  if (thead && thead.children.length === 7) {
     const dueTh = document.createElement('th');
     dueTh.textContent = 'Due Date';
     thead.insertBefore(dueTh, thead.children[4]);
@@ -525,21 +784,18 @@ function drawPieChart() {
     angle += sweep;
   });
 
-  // Donut hole
-  const surfaceColor = getComputedStyle(document.documentElement)
-    .getPropertyValue('--surface').trim() || '#fff';
-  ctx.beginPath(); ctx.arc(cx, cy, r*.5, 0, Math.PI*2);
+  const surfaceColor = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#fff';
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2);
   ctx.fillStyle = surfaceColor; ctx.fill();
 
-  // Centre text
-  const textColor = getComputedStyle(document.documentElement)
-    .getPropertyValue('--text').trim() || '#111';
-  const mutedColor = getComputedStyle(document.documentElement)
-    .getPropertyValue('--text-muted').trim() || '#6b7280';
+  const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#111';
+  const mutedColor = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim() || '#6b7280';
   ctx.fillStyle = textColor;
-  ctx.font = 'bold 18px Segoe UI'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = 'bold 18px Segoe UI, system-ui';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(tasks.length, cx, cy - 8);
-  ctx.font = '11px Segoe UI'; ctx.fillStyle = mutedColor;
+  ctx.font = '11px Segoe UI, system-ui';
+  ctx.fillStyle = mutedColor;
   ctx.fillText('Total', cx, cy + 12);
 
   const legend = document.getElementById('pieLegend');
@@ -576,13 +832,13 @@ function drawWeeklyChart() {
   ctx.clearRect(0, 0, W, H);
   const base = Math.max(tasks.length, 4);
   const pts  = [
-    Math.round(base*.25), Math.round(base*.45), Math.round(base*.3),
-    Math.round(base*.7),  Math.round(base*.55), Math.round(base*.85), Math.round(base*.6)
+    Math.round(base*0.25), Math.round(base*0.45), Math.round(base*0.3),
+    Math.round(base*0.7),  Math.round(base*0.55), Math.round(base*0.85), Math.round(base*0.6)
   ];
   drawSmoothChart(ctx, pts, W, H, getAccentColor(), 15, 15, 15, 15);
 }
 
-// ── Projects ──────────────────────────────────────────────────────────
+// ── Projects View ─────────────────────────────────────────────────────
 function renderProjects() {
   const container = document.getElementById('projectsGrid');
   if (!container) return;
@@ -596,7 +852,7 @@ function renderProjects() {
   });
   const names = Object.keys(projects);
   if (!names.length) {
-    container.innerHTML = '<div class="empty-state">No projects yet. Tag tasks with a project name.</div>';
+    container.innerHTML = '<div class="empty-state">No projects yet. Tag tasks with a project name to group them.</div>';
     return;
   }
   container.innerHTML = names.map(name => {
@@ -620,16 +876,16 @@ function filterByProject(name) {
 }
 window.filterByProject = filterByProject;
 
-document.getElementById('addProjectBtn').addEventListener('click', () => {
-  openModal(); fProject.focus();
+document.getElementById('addProjectBtn')?.addEventListener('click', () => {
+  openModal();
+  setTimeout(() => fProject?.focus(), 100);
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// ── NOTIFICATION / DEADLINE SYSTEM ───────────────────────────────────
+// ── NOTIFICATION & DEADLINE ALERT ENGINE ─────────────────────────────
 // ══════════════════════════════════════════════════════════════════════
 
 function saveFiredNotifs() {
-  // Keep only IDs that still exist & aren't done
   const activeIds = new Set(
     tasks.filter(t => t.status !== 'done').map(t => `${t.id}`)
   );
@@ -641,24 +897,24 @@ function saveFiredNotifs() {
   localStorage.setItem('tf-fired-notifs', JSON.stringify([...firedNotifs]));
 }
 
-// ── Browser Permission Bar ────────────────────────────────────────────
 async function requestNotifPermission() {
   if (!('Notification' in window)) {
-    showToast('Your browser does not support notifications', 'error'); return;
+    showToast('Your browser does not support desktop notifications', 'error');
+    return;
   }
   const perm = await Notification.requestPermission();
   if (perm === 'granted') {
-    showToast('🔔 Notifications enabled!', 'success');
-    notifBar.classList.add('hidden');
+    showToast('🔔 Browser notifications enabled!', 'success');
+    notifBar?.classList.add('hidden');
     localStorage.setItem('tf-notif-bar-dismissed', 'true');
   } else {
-    showToast('Notifications blocked — enable them in browser settings', 'error');
+    showToast('Notifications blocked in browser settings', 'error');
   }
 }
 window.requestNotifPermission = requestNotifPermission;
 
 function dismissNotifBar() {
-  notifBar.classList.add('hidden');
+  notifBar?.classList.add('hidden');
   localStorage.setItem('tf-notif-bar-dismissed', 'true');
 }
 window.dismissNotifBar = dismissNotifBar;
@@ -666,12 +922,11 @@ window.dismissNotifBar = dismissNotifBar;
 function checkNotifBarVisibility() {
   const dismissed = localStorage.getItem('tf-notif-bar-dismissed') === 'true';
   const granted   = 'Notification' in window && Notification.permission === 'granted';
-  if (!dismissed && !granted && 'Notification' in window) {
+  if (!dismissed && !granted && 'Notification' in window && notifBar) {
     notifBar.classList.remove('hidden');
   }
 }
 
-// ── Deadline Helpers ──────────────────────────────────────────────────
 function isOverdue(task) {
   if (!task.dueDate || task.status === 'done') return false;
   return new Date(task.dueDate).getTime() < Date.now();
@@ -709,10 +964,9 @@ function dueDateBadge(task) {
   return `<span class="due-badge due-ok">📅 ${fmtDateTime(task.dueDate)}</span>`;
 }
 
-// ── Deadline Checker ──────────────────────────────────────────────────
 function startDeadlineChecker() {
-  checkDeadlines();               // check immediately on load
-  setInterval(checkDeadlines, 60 * 1000); // then every minute
+  checkDeadlines();
+  setInterval(checkDeadlines, 30 * 1000); // Check every 30 seconds
 }
 
 function checkDeadlines() {
@@ -737,7 +991,6 @@ function checkDeadlines() {
   processAlertQueue();
 }
 
-// ── Alert Queue ───────────────────────────────────────────────────────
 function queueAlert(task, type) {
   if (alertQueue.some(a => a.task.id === task.id && a.type === type)) return;
   alertQueue.push({ task, type });
@@ -751,7 +1004,6 @@ function processAlertQueue() {
   fireBrowserNotification(currentAlert.task, currentAlert.type);
 }
 
-// ── Browser Notification ──────────────────────────────────────────────
 function fireBrowserNotification(task, type) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const isOver = type === 'overdue';
@@ -765,85 +1017,88 @@ function fireBrowserNotification(task, type) {
       }
     );
     n.onclick = () => { window.focus(); };
-  } catch (_) { /* silently ignore notification errors */ }
+  } catch (_) {}
 }
 
-// ── In-App Alert UI ───────────────────────────────────────────────────
 function showDeadlineAlertUI(task, type) {
+  if (!deadlineAlert) return;
   const isOver = type === 'overdue';
   const card   = deadlineAlert.querySelector('.deadline-card');
 
-  // Colour-code the top bar
-  card.classList.toggle('type-soon', !isOver);
-  card.classList.remove('type-soon');
-  if (!isOver) card.classList.add('type-soon');
+  card?.classList.remove('type-soon');
+  if (!isOver) card?.classList.add('type-soon');
 
-  document.getElementById('dalertIcon').textContent  = isOver ? '🔴' : '⏰';
-  document.getElementById('dalertTitle').textContent = isOver ? 'Task Overdue!' : 'Task Due Soon!';
-  document.getElementById('dalertDesc').textContent  = task.description;
+  const dIcon  = document.getElementById('dalertIcon');
+  const dTitle = document.getElementById('dalertTitle');
+  const dDesc  = document.getElementById('dalertDesc');
+  const dTime  = document.getElementById('dalertTime');
 
-  // Time label
+  if (dIcon) dIcon.textContent  = isOver ? '🔴' : '⏰';
+  if (dTitle) dTitle.textContent = isOver ? 'Task Overdue!' : 'Task Due Soon!';
+  if (dDesc) dDesc.textContent  = task.description;
+
   const diff = new Date(task.dueDate).getTime() - Date.now();
   let timeText;
   if (diff <= 0) {
     const m = Math.round(Math.abs(diff)/60000);
-    timeText = m < 60
-      ? `Overdue by ${m} minute${m!==1?'s':''}`
-      : `Overdue by ${Math.round(m/60)} hour${Math.round(m/60)!==1?'s':''}`;
+    timeText = m < 60 ? `Overdue by ${m} minute${m!==1?'s':''}` : `Overdue by ${Math.round(m/60)} hour${Math.round(m/60)!==1?'s':''}`;
   } else {
     const m = Math.round(diff/60000);
     timeText = `Due in ${m} minute${m!==1?'s':''}`;
   }
-  document.getElementById('dalertTime').textContent = timeText;
+  if (dTime) dTime.textContent = timeText;
 
-  // Queue count badge
   const qEl = document.getElementById('dalertQueueCount');
-  if (alertQueue.length > 0) {
-    qEl.textContent = `+${alertQueue.length} more`;
-    qEl.classList.remove('hidden');
-  } else {
-    qEl.classList.add('hidden');
+  if (qEl) {
+    if (alertQueue.length > 0) {
+      qEl.textContent = `+${alertQueue.length} more`;
+      qEl.classList.remove('hidden');
+    } else {
+      qEl.classList.add('hidden');
+    }
   }
 
   // Wire buttons
-  document.getElementById('dalertDone').onclick     = async () => { await patchStatus(task.id, 'done'); closeDeadlineAlert(); };
+  const btnDone = document.getElementById('dalertDone');
+  if (btnDone) btnDone.onclick = async () => { await patchStatus(task.id, 'done'); closeDeadlineAlert(); };
+
   document.getElementById('dalertSnooze15').onclick = () => snoozeTask(task.id, 15);
   document.getElementById('dalertSnooze30').onclick = () => snoozeTask(task.id, 30);
   document.getElementById('dalertSnooze60').onclick = () => snoozeTask(task.id, 60);
   document.getElementById('dalertDismiss').onclick  = closeDeadlineAlert;
 
   deadlineAlert.classList.remove('hidden');
-  // Restart animation
   deadlineAlert.style.animation = 'none';
   requestAnimationFrame(() => { deadlineAlert.style.animation = ''; });
 }
 
 function closeDeadlineAlert() {
-  deadlineAlert.classList.add('hidden');
+  deadlineAlert?.classList.add('hidden');
   currentAlert = null;
-  setTimeout(processAlertQueue, 600); // short pause before next alert
+  setTimeout(processAlertQueue, 500);
 }
 
 async function snoozeTask(taskId, minutes) {
   const newDue = new Date(Date.now() + minutes * 60000).toISOString();
   try {
     await apiFetch(`/tasks/${taskId}`, 'PATCH', { dueDate: newDue });
-    // Clear fired flags so it re-fires after the snooze period
     firedNotifs.delete(`${taskId}-warn`);
     firedNotifs.delete(`${taskId}-over`);
     saveFiredNotifs();
     await loadTasks();
     closeDeadlineAlert();
-    showToast(`😴 Snoozed ${minutes} min — you'll be reminded again`, 'info');
+    showToast(`😴 Task snoozed for ${minutes} min`, 'info');
     addNotif(`Task #${taskId} snoozed for ${minutes} min`);
   } catch (err) {
-    showToast('Error snoozing: ' + err.message, 'error');
+    showToast('Notice: ' + err.message, 'info');
+    closeDeadlineAlert();
+    await loadTasks();
   }
 }
 window.snoozeTask = snoozeTask;
 
 // ══════════════════════════════════════════════════════════════════════
-// ── SETTINGS ──────────────────────────────────────────────────────────
+// ── SETTINGS & THEMES ─────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════
 
 document.querySelectorAll('.swatch').forEach(sw => {
@@ -860,40 +1115,40 @@ function applyTheme(theme) {
   setTimeout(render, 50);
 }
 
-// Background options
 document.querySelectorAll('input[name="bg"]').forEach(radio => {
   radio.addEventListener('change', () => {
     ['Solid','Gradient','Image','Upload'].forEach(n =>
-      document.getElementById(`bg${n}Opt`).classList.add('hidden')
+      document.getElementById(`bg${n}Opt`)?.classList.add('hidden')
     );
     const id = `bg${cap(radio.value)}Opt`;
     document.getElementById(id)?.classList.remove('hidden');
   });
 });
 
-document.getElementById('bgColor').addEventListener('input', e => {
+document.getElementById('bgColor')?.addEventListener('input', e => {
   document.body.style.background = e.target.value;
   document.body.classList.remove('has-bg-image');
   localStorage.setItem('tf-bg-type', 'solid');
   localStorage.setItem('tf-bg-val', e.target.value);
 });
 
-document.getElementById('gradientSelect').addEventListener('change', e => {
+document.getElementById('gradientSelect')?.addEventListener('change', e => {
   document.body.style.background = e.target.value;
   document.body.classList.remove('has-bg-image');
   localStorage.setItem('tf-bg-type', 'gradient');
   localStorage.setItem('tf-bg-val', e.target.value);
 });
 
-document.getElementById('applyImageUrl').addEventListener('click', () => {
-  const url = document.getElementById('bgImageUrl').value.trim();
+document.getElementById('applyImageUrl')?.addEventListener('click', () => {
+  const url = document.getElementById('bgImageUrl')?.value.trim();
   if (!url) return;
   applyBgImage(url);
   localStorage.setItem('tf-bg-type', 'image');
   localStorage.setItem('tf-bg-val', url);
+  showToast('Custom background image applied ✓', 'success');
 });
 
-document.getElementById('bgUpload').addEventListener('change', e => {
+document.getElementById('bgUpload')?.addEventListener('change', e => {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
@@ -901,6 +1156,7 @@ document.getElementById('bgUpload').addEventListener('change', e => {
     applyBgImage(ev.target.result);
     localStorage.setItem('tf-bg-type', 'image');
     localStorage.setItem('tf-bg-val', ev.target.result);
+    showToast('Background uploaded successfully ✓', 'success');
   };
   reader.readAsDataURL(file);
 });
@@ -910,45 +1166,47 @@ function applyBgImage(url) {
   document.body.classList.add('has-bg-image');
 }
 
-document.getElementById('resetBg').addEventListener('click', () => {
+document.getElementById('resetBg')?.addEventListener('click', () => {
   document.body.style.background = '';
   document.body.classList.remove('has-bg-image');
   localStorage.removeItem('tf-bg-type');
   localStorage.removeItem('tf-bg-val');
-  showToast('Background reset', 'info');
+  showToast('Background reset to default theme', 'info');
 });
 
-document.getElementById('accentColor').addEventListener('input', e => {
+document.getElementById('accentColor')?.addEventListener('input', e => {
   document.documentElement.style.setProperty('--accent', e.target.value);
   localStorage.setItem('tf-accent', e.target.value);
 });
 
-document.getElementById('sidebarCollapse').addEventListener('change', e => {
-  sidebar.classList.toggle('collapsed', e.target.checked);
+document.getElementById('sidebarCollapse')?.addEventListener('change', e => {
+  sidebar?.classList.toggle('collapsed', e.target.checked);
   localStorage.setItem('tf-sidebar-collapsed', e.target.checked);
 });
 
-document.getElementById('compactMode').addEventListener('change', e => {
+document.getElementById('compactMode')?.addEventListener('change', e => {
   document.body.classList.toggle('compact', e.target.checked);
   localStorage.setItem('tf-compact', e.target.checked);
 });
 
-document.getElementById('exportBtn').addEventListener('click', () => {
+document.getElementById('exportBtn')?.addEventListener('click', () => {
   const blob = new Blob([JSON.stringify(tasks, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = 'tasks-export.json'; a.click();
-  showToast('Exported tasks.json', 'success');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'tasks-export.json';
+  a.click();
+  showToast('Exported tasks to tasks-export.json', 'success');
 });
 
-document.getElementById('clearAllBtn').addEventListener('click', async () => {
-  if (!confirm('Delete ALL tasks? This cannot be undone.')) return;
+document.getElementById('clearAllBtn')?.addEventListener('click', async () => {
+  if (!confirm('Are you sure you want to delete ALL tasks? This cannot be undone.')) return;
   await Promise.all(tasks.map(t => apiFetch(`/tasks/${t.id}`, 'DELETE')));
-  firedNotifs.clear(); saveFiredNotifs();
+  firedNotifs.clear();
+  saveFiredNotifs();
   await loadTasks();
   showToast('All tasks cleared', 'info');
 });
 
-// ── Restore Preferences ───────────────────────────────────────────────
 function restorePrefs() {
   const theme = localStorage.getItem('tf-theme');
   if (theme) {
@@ -959,46 +1217,58 @@ function restorePrefs() {
   }
   const bgType = localStorage.getItem('tf-bg-type');
   const bgVal  = localStorage.getItem('tf-bg-val');
-  if (bgType === 'solid'    && bgVal) { document.body.style.background = bgVal; document.getElementById('bgColor').value = bgVal; }
-  else if (bgType === 'gradient' && bgVal) { document.body.style.background = bgVal; }
-  else if (bgType === 'image'    && bgVal) { applyBgImage(bgVal); }
+  if (bgType === 'solid' && bgVal) {
+    document.body.style.background = bgVal;
+    const bgColInput = document.getElementById('bgColor');
+    if (bgColInput) bgColInput.value = bgVal;
+  } else if (bgType === 'gradient' && bgVal) {
+    document.body.style.background = bgVal;
+  } else if (bgType === 'image' && bgVal) {
+    applyBgImage(bgVal);
+  }
 
   const accent = localStorage.getItem('tf-accent');
-  if (accent) { document.documentElement.style.setProperty('--accent', accent); document.getElementById('accentColor').value = accent; }
+  if (accent) {
+    document.documentElement.style.setProperty('--accent', accent);
+    const accInput = document.getElementById('accentColor');
+    if (accInput) accInput.value = accent;
+  }
 
   if (localStorage.getItem('tf-sidebar-collapsed') === 'true') {
-    sidebar.classList.add('collapsed');
-    document.getElementById('sidebarCollapse').checked = true;
+    sidebar?.classList.add('collapsed');
+    const sc = document.getElementById('sidebarCollapse');
+    if (sc) sc.checked = true;
   }
   if (localStorage.getItem('tf-compact') === 'true') {
     document.body.classList.add('compact');
-    document.getElementById('compactMode').checked = true;
+    const cm = document.getElementById('compactMode');
+    if (cm) cm.checked = true;
   }
 }
 
-// ── Kanban "Add Task" button ──────────────────────────────────────────
-document.addEventListener('click', e => {
-  if (e.target.classList.contains('add-task-btn')) openModal();
-});
-
-// ── Utility ───────────────────────────────────────────────────────────
+// ── Utility Helpers ───────────────────────────────────────────────────
 function esc(str) {
   return String(str || '')
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
-function cap(s)     { return s ? s[0].toUpperCase() + s.slice(1) : ''; }
+
+function cap(s) {
+  return s ? s[0].toUpperCase() + s.slice(1) : '';
+}
+
 function fmtDate(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
 }
+
 function fmtDateTime(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString(undefined, {
     month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'
   });
 }
-// Convert stored UTC ISO → local datetime string for <input type="datetime-local">
+
 function toLocalDatetimeInput(iso) {
   if (!iso) return '';
   const d      = new Date(iso);
@@ -1006,16 +1276,21 @@ function toLocalDatetimeInput(iso) {
   return new Date(d.getTime() - offset).toISOString().slice(0, 16);
 }
 
-// ── Init ──────────────────────────────────────────────────────────────
+// ── App Initialization ────────────────────────────────────────────────
 (async function init() {
   restorePrefs();
   checkNotifBarVisibility();
+
+  // Test server connection
+  await checkServerConnection(false);
+
+  // Load initial tasks
   await loadTasks();
 
-  // Seed demo data if empty
+  // Seed demo data if totally empty (on fresh install)
   if (tasks.length === 0) {
     const in1h  = new Date(Date.now() + 60*60*1000).toISOString();
-    const past  = new Date(Date.now() - 30*60*1000).toISOString(); // 30 min ago (overdue demo)
+    const past  = new Date(Date.now() - 30*60*1000).toISOString();
     const demos = [
       { description:'Design UX wireframes',         status:'todo',        priority:'high',   project:'Design',   progress:25, dueDate:in1h },
       { description:'Research competitor apps',     status:'todo',        priority:'medium', project:'Research', progress:0  },
@@ -1023,10 +1298,17 @@ function toLocalDatetimeInput(iso) {
       { description:'Write API documentation',      status:'in-progress', priority:'low',    project:'Backend',  progress:40, dueDate:past },
       { description:'Setup project repo',           status:'done',        priority:'medium', project:'DevOps',   progress:100},
     ];
-    for (const d of demos) await apiFetch('/tasks', 'POST', d);
-    tasks = await apiFetch('/tasks');
-    render();
+    for (const d of demos) {
+      await apiFetch('/tasks', 'POST', d);
+    }
+    await loadTasks();
   }
 
+  // Start background engines
   startDeadlineChecker();
+
+  // Poll server connection every 6 seconds in background
+  setInterval(() => {
+    checkServerConnection(false);
+  }, 6000);
 })();
