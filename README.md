@@ -1,8 +1,11 @@
 # TrackFlow — Task Tracker CLI & Web Dashboard
 
-> **Project URL / Repository**: [https://github.com/winston132/task-tracker](https://github.com/winston132/task-tracker)  
-> **Roadmap.sh Project Page**: [https://roadmap.sh/projects/task-tracker](https://roadmap.sh/projects/task-tracker)  
-> **Local App URL**: [http://localhost:3000](http://localhost:3000)
+## Project URL
+- **Roadmap.sh Project Page**: https://roadmap.sh/projects/task-tracker
+- **GitHub Repository**: https://github.com/winston132/task-tracker
+- **Live Local Web App**: http://localhost:3000
+
+---
 
 A full-featured **Task Tracker** with both a **command-line interface (CLI)** and a beautiful **web dashboard** — built with zero external dependencies (pure Node.js + vanilla HTML/CSS/JS) with full Docker container support.
 
@@ -30,16 +33,32 @@ A full-featured **Task Tracker** with both a **command-line interface (CLI)** an
 
 ## 🚀 Getting Started
 
-### Prerequisites
-- [Node.js](https://nodejs.org/) v16+ (no `npm install` needed — zero dependencies)
-
-### Run the Web Dashboard
+### Option 1: Run with Docker (Recommended)
 
 ```bash
-# Clone the repo (or unzip the project folder)
+# Clone the repository
+git clone https://github.com/winston132/task-tracker.git
 cd task-tracker
 
-# Start the server
+# Build and run directly from Dockerfile
+docker build -t task-tracker .
+docker run -d -p 3000:3000 --name task-tracker -v "${PWD}/tasks.json:/app/tasks.json" task-tracker
+
+# Or use docker-compose
+docker-compose up -d
+```
+
+Open **http://localhost:3000** in your browser.
+
+---
+
+### Option 2: Run with Node.js directly
+
+#### Prerequisites
+- [Node.js](https://nodejs.org/) v16+ (no `npm install` needed — zero external dependencies)
+
+```bash
+# Start the web server
 node server.js
 ```
 
