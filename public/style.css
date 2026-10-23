@@ -624,3 +624,160 @@ body.compact .kanban-card { padding: .55rem; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+
+/* ══════════════════════════════════════════════════════════════
+   DEADLINE & NOTIFICATION ADDITIONS
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Notification Permission Bar ────────────────────────────── */
+.notif-permission-bar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .65rem 1.5rem;
+  background: linear-gradient(90deg, #4f6ef7, #7c3aed);
+  color: #fff;
+  font-size: .88rem;
+  box-shadow: 0 2px 12px rgba(79,110,247,.4);
+  animation: slideDown .3s ease;
+}
+@keyframes slideDown { from { transform: translateY(-100%); } to { transform: none; } }
+.notif-bar-icon { font-size: 1.1rem; }
+.notif-permission-bar span { flex: 1; }
+.notif-bar-btn {
+  background: rgba(255,255,255,.2);
+  border: 1px solid rgba(255,255,255,.4);
+  color: #fff;
+  border-radius: 7px;
+  padding: .35rem .9rem;
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s;
+}
+.notif-bar-btn:hover { background: rgba(255,255,255,.35); }
+.notif-bar-close {
+  background: none; border: none; color: rgba(255,255,255,.8);
+  font-size: 1rem; cursor: pointer; padding: .1rem .3rem;
+  border-radius: 4px; line-height: 1;
+}
+.notif-bar-close:hover { color: #fff; background: rgba(255,255,255,.15); }
+
+/* ── Form hint text ──────────────────────────────────────────── */
+.form-hint { font-size: .72rem; color: var(--text-muted); margin-top: .2rem; }
+.form-group input[type="datetime-local"] {
+  padding: .5rem .75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface2);
+  color: var(--text);
+  font-size: .9rem;
+  outline: none;
+  width: 100%;
+  transition: border-color .15s;
+  color-scheme: light dark;
+}
+.form-group input[type="datetime-local"]:focus { border-color: var(--accent); }
+
+/* ── Due-date badges ─────────────────────────────────────────── */
+.due-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  font-size: .7rem;
+  font-weight: 600;
+  padding: .18rem .5rem;
+  border-radius: 99px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.due-badge.overdue  { background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; animation:pulse 1.5s infinite; }
+.due-badge.due-soon { background:#fef3c7; color:#b45309; border:1px solid #fde68a; }
+.due-badge.due-hour { background:#e0e7ff; color:#4338ca; border:1px solid #c7d2fe; }
+.due-badge.due-ok   { background:var(--surface2); color:var(--text-muted); border:1px solid var(--border); }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.55;} }
+
+.task-table tr.row-overdue td { background:#fff5f5 !important; }
+[data-theme="dark"] .task-table tr.row-overdue td { background:#2d1515 !important; }
+
+/* ── Deadline Alert Card ─────────────────────────────────────── */
+.deadline-overlay {
+  position: fixed;
+  bottom: 1.75rem; right: 1.75rem;
+  z-index: 500;
+  max-width: 370px; width: 100%;
+  animation: alertSlideIn .35s cubic-bezier(.21,1.02,.73,1) both;
+}
+@keyframes alertSlideIn {
+  from { transform: translateX(120%); opacity:0; }
+  to   { transform: none;             opacity:1; }
+}
+.deadline-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 16px 48px rgba(0,0,0,.2), 0 2px 8px rgba(0,0,0,.08);
+  overflow: hidden;
+}
+.deadline-card::before {
+  content:''; display:block; height:4px;
+  background: linear-gradient(90deg,#ef4444,#f97316);
+}
+.deadline-card.type-soon::before { background:linear-gradient(90deg,#f59e0b,#fbbf24); }
+
+.deadline-card-header {
+  display:flex; align-items:center; gap:.75rem;
+  padding: 1rem 1.1rem .5rem;
+}
+.deadline-icon { font-size:1.9rem; flex-shrink:0; }
+.deadline-card-titles { flex:1; }
+.deadline-title { font-weight:700; font-size:.97rem; }
+.deadline-time-label { font-size:.78rem; color:#ef4444; font-weight:600; margin-top:.1rem; }
+.deadline-card.type-soon .deadline-time-label { color:#d97706; }
+
+.deadline-queue-count {
+  background:#ef4444; color:#fff;
+  font-size:.7rem; font-weight:700;
+  border-radius:99px; padding:.2rem .55rem;
+}
+.deadline-desc {
+  padding:.3rem 1.1rem .7rem;
+  font-size:.92rem; font-weight:500; line-height:1.5;
+  border-bottom:1px solid var(--border);
+}
+.deadline-card-actions {
+  padding:.9rem 1.1rem;
+  display:flex; flex-direction:column; gap:.55rem;
+}
+.btn-done-deadline {
+  width:100%; background:#10b981; color:#fff;
+  border:none; border-radius:9px; padding:.55rem;
+  font-size:.88rem; font-weight:700; cursor:pointer;
+  transition:background .15s;
+}
+.btn-done-deadline:hover { background:#059669; }
+.snooze-group { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
+.snooze-label { font-size:.78rem; color:var(--text-muted); font-weight:600; white-space:nowrap; }
+.snooze-btn {
+  flex:1; background:var(--surface2);
+  border:1px solid var(--border); border-radius:8px;
+  padding:.38rem .4rem; font-size:.78rem; font-weight:600;
+  color:var(--text); cursor:pointer; white-space:nowrap;
+  transition:background .15s, border-color .15s, color .15s;
+}
+.snooze-btn:hover { background:#e0e7ff; border-color:#4f6ef7; color:#4f6ef7; }
+.btn-dismiss-deadline {
+  background:none; border:none; color:var(--text-muted);
+  font-size:.8rem; cursor:pointer; text-align:center;
+  padding:.2rem; border-radius:6px; transition:color .15s;
+}
+.btn-dismiss-deadline:hover { color:var(--text); }
+
+/* Kanban card deadline accents */
+.kanban-card.card-overdue { border-left:3px solid #ef4444; }
+.kanban-card.card-soon    { border-left:3px solid #f59e0b; }

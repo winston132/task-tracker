@@ -128,6 +128,7 @@ async function handleAPI(req, res) {
       project: body.project || '',
       progress: body.progress || 0,
       assignee: body.assignee || '',
+      dueDate: body.dueDate || null,
       createdAt: now(),
       updatedAt: now(),
     };
@@ -154,6 +155,7 @@ async function handleAPI(req, res) {
       project: body.project !== undefined ? body.project : data.tasks[idx].project,
       progress: body.progress !== undefined ? body.progress : data.tasks[idx].progress,
       assignee: body.assignee !== undefined ? body.assignee : data.tasks[idx].assignee,
+      dueDate: body.dueDate !== undefined ? body.dueDate : data.tasks[idx].dueDate,
       updatedAt: now(),
     };
     saveTasks(data);

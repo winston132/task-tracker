@@ -8,6 +8,14 @@
 </head>
 <body>
 
+<!-- ════════════════════════ NOTIFICATION PERMISSION BAR ════════ -->
+<div class="notif-permission-bar hidden" id="notifBar">
+  <span class="notif-bar-icon">🔔</span>
+  <span>Enable browser notifications to get deadline alerts when tasks are due.</span>
+  <button class="notif-bar-btn" onclick="requestNotifPermission()">Enable Notifications</button>
+  <button class="notif-bar-close" onclick="dismissNotifBar()">✕</button>
+</div>
+
 <!-- ════════════════════════ SIDEBAR ════════════════════════ -->
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-logo">
@@ -334,6 +342,11 @@
         <input type="text" id="fAssignee" placeholder="Name" />
       </div>
       <div class="form-group">
+        <label>⏰ Due Date &amp; Time</label>
+        <input type="datetime-local" id="fDueDate" />
+        <span class="form-hint">Leave empty for no deadline</span>
+      </div>
+      <div class="form-group">
         <label>Progress <span id="progressVal">0</span>%</label>
         <input type="range" id="fProgress" min="0" max="100" value="0" />
       </div>
@@ -355,6 +368,31 @@
 
 <!-- Toast -->
 <div class="toast hidden" id="toast"></div>
+
+<!-- ════════════════════════ DEADLINE ALERT ════════════════════════ -->
+<div class="deadline-overlay hidden" id="deadlineAlert">
+  <div class="deadline-card">
+    <div class="deadline-card-header">
+      <span class="deadline-icon" id="dalertIcon">⏰</span>
+      <div class="deadline-card-titles">
+        <div class="deadline-title" id="dalertTitle">Task Due Soon!</div>
+        <div class="deadline-time-label" id="dalertTime"></div>
+      </div>
+      <span class="deadline-queue-count hidden" id="dalertQueueCount"></span>
+    </div>
+    <div class="deadline-desc" id="dalertDesc"></div>
+    <div class="deadline-card-actions">
+      <button class="btn-done-deadline" id="dalertDone">✅ Mark Done</button>
+      <div class="snooze-group">
+        <span class="snooze-label">😴 Snooze:</span>
+        <button class="snooze-btn" id="dalertSnooze15">15 min</button>
+        <button class="snooze-btn" id="dalertSnooze30">30 min</button>
+        <button class="snooze-btn" id="dalertSnooze60">1 hour</button>
+      </div>
+      <button class="btn-dismiss-deadline" id="dalertDismiss">Dismiss</button>
+    </div>
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>
